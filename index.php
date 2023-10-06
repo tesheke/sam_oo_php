@@ -20,7 +20,7 @@
 //error_reporting(E_ALL);
 //error_reporting(E_ALL & ~E_NOTICE);
 
-define('IMG_DIR', 'sam_media/');		// 画像一覧ディレクトリ
+define('IMG_DIR', 'src_imgs/');		// 画像一覧ディレクトリ
 define('THUMB_DIR', 'imgs/');	// サムネイル保存ディレクトリ
 define('MAX_W', 200);			// 出力画像幅
 define('MAX_H', 155);			// 出力画像高さ
@@ -167,11 +167,16 @@ function updatesam(){
     $datA = $datB = '';
     $pagesA = $pagesB = '';
     $dispmsgA = $dispmsgB = '';
+    $lineA = $lineB = 0;
     // 枚数分の繰り返し
     for ($i = 0; $i < PAGE_DEF; ++$i) {
       $counter = $i + 1;
       // 逆順表示
-      if (list($line, $val) = each($filesA)) {
+      $val = current($filesA);
+      if ($val !== false) {
+        next($filesA);
+        $line = $lineA;
+        ++$lineA;
         // ファイル名と拡張子を取得
         $fname = ($val['subpath'] != '') ? $val['subpath'].'/'.$val['name'].$val['ext'] : $val['name'].$val['ext'];
         $src = $path.$fname;
@@ -225,7 +230,11 @@ function updatesam(){
         if ((($counter % PAGE_COLS) == 0) && (($counter % PAGE_DEF) != 0) && ($line != ($fcount-1))) { $dispmsgA .= "  </tr><tr>\n"; }
       }
       // 正順表示
-      if (list($line, $val) = each($filesB)) {
+      $val = current($filesB);
+      if ($val !== false) {
+        next($filesB);
+        $line = $lineB;
+        ++$lineB;
         // ファイル名と拡張子を取得
         $fname = ($val['subpath'] != '') ? $val['subpath'].'/'.$val['name'].$val['ext'] : $val['name'].$val['ext'];
         $src = $path.$fname;
