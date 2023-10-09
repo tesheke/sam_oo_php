@@ -1,4 +1,5 @@
 <?php
+
 /*
 おまけのおまけ。 (sam.php 風)
 バグがあればご報告をお願いします。
@@ -20,8 +21,24 @@
 //error_reporting(E_ALL);
 //error_reporting(E_ALL & ~E_NOTICE);
 
-define('IMG_DIR', 'src_imgs/');		// 画像一覧ディレクトリ
-define('THUMB_DIR', 'imgs/');	// サムネイル保存ディレクトリ
+if (file_exists('instance-config.php')) {
+  require_once 'instance-config.php';
+};
+
+/*
+ * 設定は instance-config.php へ書き込んで下さい。
+ * define値を含めて instance-config.php の定義が優先されます。
+ */
+
+$backuped_error_level = error_reporting();
+
+if ($backuped_error_level & E_WARNING) {
+    error_reporting($backuped_error_level & ~E_WARNING);
+};
+
+
+define('IMG_DIR', 'img_src/');		// 画像一覧ディレクトリ
+define('THUMB_DIR', 'img_thumb/');	// サムネイル保存ディレクトリ
 define('MAX_W', 200);			// 出力画像幅
 define('MAX_H', 155);			// 出力画像高さ
 define('PAGE_COLS', 4);			// 1行に表示する画像数
@@ -39,9 +56,6 @@ define('PHP_SELF2_R', 'sam.htm');	// 入り口ファイル名（正順
 define('PHP_EXT_R', 's.htm');		// 1ページ以降の拡張子（正順
 define('GOTO_P', 'sam_r.htm');		// 最初に表示するページ
 
-define('IMG_REFER', 0);			// ツール避けに画像リンクをhtml経由にする  する:1 しない:0
-define('IMG_REF_DIR', 'red/');		// 経由先html格納ディレクトリ
-
 define('TITLE', 'サムネイル一覧');	// タイトル（<title>のみ
 define('TITLE_T', '古い順');	// 正順表示
 define('TITLE_R', '新しい順');	// 逆順表示
@@ -49,36 +63,72 @@ define('TITLE_R', '新しい順');	// 逆順表示
 define('DIR_DEPTH', -1);	// 探索するディレクトリの深さを制限する  する:0以上 しない:-1
 define('SORT_BY_DATE', 1);	// 更新日順にする  する:1 しない:0
 
-$icons = array(
-	// 拡張子小文字 => 代替画像  ※変更する場合は「検索する拡張子」も適宜変更すること
-	'pch' => 'icon_arc.png',
-	'spch' => 'icon_arc.png',
-	'txt' => 'icon_txt.png',
-	'pdf' => 'icon_txt.png',
-	'mhtm' => 'icon_txt.png',
-	'mht' => 'icon_txt.png',
-	'swf' => 'icon_mov.png',
-	'flv' => 'icon_mov.png',
-	'wav' => 'icon_mov.png',
-	'mp3' => 'icon_mov.png',
-	'wmv' => 'icon_mov.png',
-	'asf' => 'icon_mov.png',
-	'mp4' => 'icon_mov.png',
-	'mpeg' => 'icon_mov.png',
-	'mpg' => 'icon_mov.png',
-	'avi' => 'icon_mov.png',
-	'ts' => 'icon_mov.png',
-	'm2ts' => 'icon_mov.png',
-	'rar' => 'icon_arc.png',
-	'zip' => 'icon_arc.png',
-	'lzh' => 'icon_arc.png',
-	'7z' => 'icon_arc.png',
-);
+error_reporting($backuped_error_level);
+unset($backuped_error_level);
 
-$file_ext = '/^(png|jpe?g|gif|pch|spch|txt|pdf|mhtm|mht|mpo|swf|flv|wav|mp3|wmv|asf|mp4|mpeg|mpg|avi|ts|m2ts|rar|zip|lzh|7z)$/i';	// 検索する拡張子
-$ignore_file = '/^(THM_|LOG_|img_|tm_).+\.(png|jpe?g|gif)$|_thumb\.(png|jpe?g|gif)$/i';	// 無視するファイル名
+// 拡張子小文字 => 代替画像  ※変更する場合は「検索する拡張子」も適宜変更すること
+if (! isset($icons)) {
+    $icons['pch'] = 'icon_arc.png';
+    $icons['spch'] = 'icon_arc.png';
+    $icons['txt'] = 'icon_txt.png';
+    $icons['pdf'] = 'icon_txt.png';
+    $icons['mhtm'] = 'icon_txt.png';
+    $icons['mht'] = 'icon_txt.png';
+    $icons['swf'] = 'icon_mov.png';
+    $icons['flv'] = 'icon_mov.png';
+    $icons['wav'] = 'icon_mov.png';
+    $icons['mp3'] = 'icon_mov.png';
+    $icons['wmv'] = 'icon_mov.png';
+    $icons['asf'] = 'icon_mov.png';
+    $icons['mp4'] = 'icon_mov.png';
+    $icons['mpeg'] = 'icon_mov.png';
+    $icons['mpg'] = 'icon_mov.png';
+    $icons['avi'] = 'icon_mov.png';
+    $icons['ts'] = 'icon_mov.png';
+    $icons['m2ts'] = 'icon_mov.png';
+    $icons['rar'] = 'icon_arc.png';
+    $icons['zip'] = 'icon_arc.png';
+    $icons['lzh'] = 'icon_arc.png';
+    $icons['7z'] = 'icon_arc.png';
+};
 
-$path = realpath('./').'/'.IMG_DIR;
+if (! isset($file_ext)) {
+    $file_ext = '/^(png|jpe?g|gif|pch|spch|txt|pdf|mhtm|mht|mpo|swf|flv|wav|mp3|wmv|asf|mp4|mpeg|mpg|avi|ts|m2ts|rar|zip|lzh|7z)$/i';	// 検索する拡張子
+};
+
+if (! isset($ignore_file)) {
+    $ignore_file = '/^(THM_|LOG_|img_|tm_).+\.(png|jpe?g|gif)$|_thumb\.(png|jpe?g|gif)$/i';	// 無視するファイル名
+};
+
+
+$src_rootdir = realpath('./') . '/' . IMG_DIR;
+
+if (str_ends_with($src_rootdir, '/')) {
+  $src_rootdir .= '/';
+};
+
+
+function might_shrink_size($width_height) {
+  // $width_height: 配列: [source width, source height] 
+  // サムネイルサイズの計算を計算して返す
+  $in_w = $width_height[0];
+  $in_h = $width_height[1];
+
+  if ($in_w > MAX_W || $in_h > MAX_H) {
+    $key_w = MAX_W / $in_w;
+    $key_h = MAX_H / $in_h;
+    $key_s = ($key_w < $key_h) ?
+           $key_w :
+           $key_h;
+    $out_w = ceil($in_w * $key_s);
+    $out_h = ceil($in_h * $key_s);
+  } else {
+    $out_w = $in_w;
+    $out_h = $in_h;
+  };
+  return [$out_w, $out_h];
+};
+
 
 /* ヘッダ */
 function head(&$dat,$page){
@@ -119,12 +169,16 @@ a {
 
 /* 表示処理部分 */
 function updatesam(){
-  global $path,$file_ext,$ignore_file,$icons;
+  global $src_rootdir, $file_ext, $ignore_file, $icons;
 
   // ディレクトリ一覧取得、ソート
-  $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(IMG_DIR,
-    FilesystemIterator::KEY_AS_PATHNAME | FilesystemIterator::CURRENT_AS_FILEINFO |
-    FilesystemIterator::SKIP_DOTS | FilesystemIterator::UNIX_PATHS));
+  $iterator = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator(
+      IMG_DIR,
+      FilesystemIterator::KEY_AS_PATHNAME
+        | FilesystemIterator::CURRENT_AS_FILEINFO
+        | FilesystemIterator::SKIP_DOTS
+        | FilesystemIterator::UNIX_PATHS));
   $iterator->setMaxDepth(DIR_DEPTH);
   $key1 = $files = array();
   foreach ($iterator as $info) {
@@ -138,10 +192,18 @@ function updatesam(){
       // サムネイル作成
       $fixsub = ($iterator->getSubPath() != '') ? str_replace('/','_2F_',$iterator->getSubPath()).'_2F_' : 'root_2F_';
       if (!array_key_exists(strtolower($info->getExtension()), $icons)) {
-        $tmpath = THUMB_DIR.$fixsub.$tmpart.$tmpext;
-        if (!function_exists('imagegif') && !is_file($tmpath)) { $tmpath = THUMB_DIR.$fixsub.$tmpart.str_replace('gif','jpg',strtolower($tmpext)); }
-        if (!is_file($tmpath)) { thumb($path,$tmpart,$tmpext,$iterator->getSubPath()); }
+        $tmpath = THUMB_DIR . $fixsub . $tmpart . $tmpext;
+
+        if (! function_exists('imagegif')
+            && ! is_file($tmpath)) {
+          $tmpath = THUMB_DIR . $fixsub . $tmpart . str_replace('gif', 'jpg', strtolower($tmpext));
+        }
+
+        if (! is_file($tmpath)) {
+          thumb($src_rootdir, $iterator->getSubPath(), $tmpart, $tmpext);
+        }
       }
+
       // リスト生成
       if (SORT_BY_DATE) {
         // http://www.php.net/manual/ja/class.splfileinfo.php
@@ -179,21 +241,14 @@ function updatesam(){
         ++$lineA;
         // ファイル名と拡張子を取得
         $fname = ($val['subpath'] != '') ? $val['subpath'].'/'.$val['name'].$val['ext'] : $val['name'].$val['ext'];
-        $src = $path.$fname;
-        $image = IMG_DIR.$fname;
+        $src = $src_rootdir . $fname;
+        $image = IMG_DIR . $fname;
         if (IMG_INWH) { // サムネイルの画像サイズ調整
           $size = getimagesize($src);
+
           // 画像表示縮小
-          if ($size[0] > MAX_W || $size[1] > MAX_H) {
-            $key_w = MAX_W / $size[0];
-            $key_h = MAX_H / $size[1];
-            ($key_w < $key_h) ? $keys = $key_w : $keys = $key_h;
-            $out_w = ceil($size[0] * $keys);
-            $out_h = ceil($size[1] * $keys);
-          } else {
-            $out_w = $size[0];
-            $out_h = $size[1];
-          }
+          list($out_w, $out_h) = might_shrink_size($size);
+
         }
         // サムネイルがある時は、サムネイルへのリンク、無いときは失敗画像へ
         $is_icon = array_key_exists(strtolower(substr($val['ext'], 1)), $icons);
@@ -203,21 +258,8 @@ function updatesam(){
           if (is_file($imagepath)) { $piclink = str_replace('%2F','/',rawurlencode($imagepath)); } // URLエンコードを行う
           else { $piclink = THUMB_FALSE; $piclink = rawurlencode($imagepath); }
         }
-        // 画像経由先htmlファイル作成
-        if (IMG_REFER && is_file($src) && !is_file(IMG_REF_DIR.$val['fixsub'].$val['name'].'.htm')) {
-          $fp = fopen(IMG_REF_DIR.$val['fixsub'].$val['name'].'.htm', 'w');
-          flock($fp, 2);
-          fputs($fp, '<meta http-equiv="refresh" content="0;URL=../'.str_replace('%2F','/',rawurlencode($image)).'">');
-          fflush($fp);
-          flock($fp, 3);
-          fclose($fp);
-        }
         // 画像テーブル
-        if (IMG_REFER) {
-          $dispmsgA .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode(IMG_REF_DIR.$val['fixsub'].$val['name'])).".htm\" target=\"_blank\">\n";
-        } else {
-          $dispmsgA .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode($image))."\" target=\"_blank\">\n";
-        }
+        $dispmsgA .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode($image))."\" target=\"_blank\">\n";
         if (!$is_icon) {
           if (IMG_INWH && is_file($imagepath)) {
             $dispmsgA .= '    <img src="'.$piclink.'" width="'.$out_w.'" height="'.$out_h.'" border="0"><br>'.$val['name'].$val['ext']."</a></td>\n";
@@ -237,21 +279,14 @@ function updatesam(){
         ++$lineB;
         // ファイル名と拡張子を取得
         $fname = ($val['subpath'] != '') ? $val['subpath'].'/'.$val['name'].$val['ext'] : $val['name'].$val['ext'];
-        $src = $path.$fname;
-        $image = IMG_DIR.$fname;
+        $src = $src_rootdir . $fname;
+        $image = IMG_DIR . $fname;
         if (IMG_INWH) { // サムネイルの画像サイズ調整
           $size = getimagesize($src);
+
           // 画像表示縮小
-          if ($size[0] > MAX_W || $size[1] > MAX_H) {
-            $key_w = MAX_W / $size[0];
-            $key_h = MAX_H / $size[1];
-            ($key_w < $key_h) ? $keys = $key_w : $keys = $key_h;
-            $out_w = ceil($size[0] * $keys);
-            $out_h = ceil($size[1] * $keys);
-          } else {
-            $out_w = $size[0];
-            $out_h = $size[1];
-          }
+          list($out_w, $out_h) = might_shrink_size($size);
+
         }
         // サムネイルがある時は、サムネイルへのリンク、無いときは失敗画像へ
         $is_icon = array_key_exists(strtolower(substr($val['ext'], 1)), $icons);
@@ -262,11 +297,7 @@ function updatesam(){
           else { $piclink = THUMB_FALSE; $piclink = rawurlencode($imagepath); }
         }
         // 画像テーブル
-        if (IMG_REFER) {
-          $dispmsgB .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode(IMG_REF_DIR.$val['fixsub'].$val['name'])).".htm\" target=\"_blank\">\n";
-        } else {
-          $dispmsgB .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode($image))."\" target=\"_blank\">\n";
-        }
+        $dispmsgB .= '    <td align=center><a href="'.str_replace('%2F','/',rawurlencode($image))."\" target=\"_blank\">\n";
         if (!$is_icon) {
           if (IMG_INWH && is_file($imagepath)) {
             $dispmsgB .= '    <img src="'.$piclink.'" width="'.$out_w.'" height="'.$out_h.'" border="0"><br>'.$val['name'].$val['ext']."</a></td>\n";
@@ -377,6 +408,7 @@ function updatesam(){
   }
 }
 
+
 /* フッタ */
 function foot(&$dat){
   $dat .= '
@@ -386,6 +418,7 @@ function foot(&$dat){
 <div align=right><a href="http://php.s3.to" target="_top">レッツPHP!</a> + <a href="http://siokara.que.jp/" target="_top">siokara</a></div>
 </body></html>';
 }
+
 
 /* エラー画面 */
 function error($mes){
@@ -397,78 +430,70 @@ function error($mes){
   die('</body></html>');
 }
 
+function src_pathcompo_to_src_path($src_rootdir, $src_subdir, $src_basename, $src_ext) {
+
+};
+
+function src_pathcompo_to_thumb_path($src_rootdir, $src_subdir, $src_basename, $src_ext) {
+};
+
 /* サムネイル作成 */
-function thumb($path,$tim,$ext,$fixsub=''){
-  if ($fixsub != '') {
-    $src = $path.$fixsub.'/'.$tim.$ext;
-    $thumb_dir = THUMB_DIR.str_replace('/','_2F_',$fixsub).'_2F_';
+function thumb($src_rootdir, $src_subdir, $src_basename, $src_ext) {
+  /*
+   * $src_ext: '.'から始まる拡張子
+   */
+
+  /*
+   * tesheke: この thumb_dir 決定方法だと $src_rootdir/img.png と $src_rootdir/root/img.png の区別が出来ない。
+   * しかし互換性のためにこの仕様を残す。
+   */
+  if ($src_subdir == '') {
+    $src = $src_rootdir . $src_basename . $src_ext;	// ファイル名
+    $thumb_prefix = THUMB_DIR . 'root_2F_';	// サムネイル保存プレフィックス
   } else {
-    $src = $path.$tim.$ext;	// ファイル名
-    $thumb_dir = THUMB_DIR.'root_2F_';	// サムネイル保存ディレクトリ
-  }
-  $W = MAX_W;		// 出力画像幅
-  $H = MAX_H;		// 出力画像高さ
+    $src_subdir = $src_subdir . '/';
+    $src = $src_rootdir . $src_subdir . $src_basename . $src_ext;
+    $thumb_prefix = THUMB_DIR . str_replace('/', '_2F_', $src_subdir);
+  };
+
+  unset($src_subdir);
+
   // 画像の幅と高さとタイプを取得
   $size = getimagesize($src);
+  // リサイズ
+  list($out_w, $out_h) = might_shrink_size($size);
+
   switch ($size[2]) {
-    case 1 :
-      if (function_exists('imagecreatefromgif')) {
-        $im_in = @imagecreatefromgif($src);
-      }
-      else {
-        // gif2png for Unix / gif2png.exe for Win : http://siokara.que.jp/
-        if (!strncasecmp(PHP_OS,'WIN',3) && is_file(realpath('./gif2png.exe'))) {
-          @exec(realpath('./gif2png.exe')." -z $src",$a);
-        }
-        elseif (is_executable(realpath('./gif2png'))) {
-          @exec(realpath('./gif2png')." $src",$a);
-        }
-        $src_png = $path.$tim.str_replace('gif','png',strtolower($ext));
-        if (is_file($src_png)) {
-          $im_in = @imagecreatefrompng($src_png);
-          unlink($src_png);
-        }
-      }
-      break;
-    case 2 :
-      $im_in = @imagecreatefromjpeg($src);
-      break;
-    case 3 :
-      if (function_exists('imagecreatefrompng')) {
-        $im_in = @imagecreatefrompng($src);
-      }
-      break;
+  case IMAGETYPE_GIF: // 1
+    $im_in = @imagecreatefromgif($src);
+    break;
+  case IMAGETYPE_JPEG: // 2
+    $im_in = @imagecreatefromjpeg($src);
+    break;
+  case IMAGETYPE_PNG: // 3
+    $im_in = @imagecreatefrompng($src);
+    break;
   }
   if (empty($im_in)) { return; }
-  // リサイズ
-  if ($size[0] > $W || $size[1] > $H) {
-    $key_w = $W / $size[0];
-    $key_h = $H / $size[1];
-    ($key_w < $key_h) ? $keys = $key_w : $keys = $key_h;
-    $out_w = ceil($size[0] * $keys);
-    $out_h = ceil($size[1] * $keys);
-  } else {
-    $out_w = $size[0];
-    $out_h = $size[1];
-  }
+
   // 出力画像（サムネイル）のイメージを作成  元画像を縦横とも コピー
   $im_out = imagecreatetruecolor($out_w, $out_h);
   imagecopyresampled($im_out, $im_in, 0, 0, 0, 0, $out_w, $out_h, $size[0], $size[1]);
 
-  // ここでエラーが出る方は下２行と置き換えてください。(GD2.0以下
-  //$im_out = imagecreate($out_w, $out_h);
-  //imagecopyresized($im_out, $im_in, 0, 0, 0, 0, $out_w, $out_h, $size[0], $size[1]);
-
   // サムネイル画像を保存
   switch ($size[2]) {
-    case 1 : if (function_exists('imagegif')) { imagegif($im_out, $thumb_dir.$tim.$ext); }
-             else { imagejpeg($im_out, $thumb_dir.$tim.str_replace('gif','jpg',strtolower($ext)), THUMB_QUALITY); }
-             break;
-    case 2 : imagejpeg($im_out, $thumb_dir.$tim.$ext, THUMB_QUALITY); break;
-    case 3 : imagepng($im_out, $thumb_dir.$tim.$ext); break;
-  }
+  case IMAGETYPE_GIF:
+    imagegif($im_out, $thumb_prefix . $src_basename . $src_ext);
+    break;
+  case IMAGETYPE_JPEG:
+    imagejpeg($im_out, $thumb_prefix . $src_basename . $src_ext, THUMB_QUALITY);
+    break;
+  case IMAGETYPE_PNG:
+    imagepng($im_out, $thumb_prefix . $src_basename . $src_ext);
+    break;
+  };
 
-  // 作成したイメージを破棄
+  // 作成したイメージを破棄(PHP 8 以降で imagedestroy は何もしない)
   imagedestroy($im_in);
   imagedestroy($im_out);
 }
@@ -487,12 +512,6 @@ function init(){
   if(!is_writable(realpath(THUMB_DIR)))$err.=THUMB_DIR.'を書けません<br>';
   if(!is_readable(realpath(THUMB_DIR)))$err.=THUMB_DIR.'を読めません<br>';
 
-  if(IMG_REFER){
-    @mkdir(IMG_REF_DIR,0777);@chmod(IMG_REF_DIR,0777);
-    if(!is_dir(realpath(IMG_REF_DIR)))$err.=IMG_REF_DIR.'がありません<br>';
-    if(!is_writable(realpath(IMG_REF_DIR)))$err.=IMG_REF_DIR.'を書けません<br>';
-    if(!is_readable(realpath(IMG_REF_DIR)))$err.=IMG_REF_DIR.'を読めません<br>';
-  }
   if($err)error($err);
 }
 
