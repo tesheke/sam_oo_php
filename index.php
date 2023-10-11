@@ -15,9 +15,10 @@
 
 // $config_ext[拡張子] = <val>;
 //   <val> が文字列ならば代替アイコンへのパス
-//   <val> が数値の 1 ならば静止画サムネイル生成処理
-//   <val> が数値の 2 ならば動画サムネイル生成処理
+//   <val> が数値の 1 ならば静止画サムネイル生成処理(PHP-GD)
+//   <val> が数値の 2 ならば動画サムネイル生成処理(ffmpeg)
 //   <val> がそれ以外の値の場合は無条件で THUMB_FALSE
+// // 2023-10-18: 動画か静止画かによるサムネイル生成処理分けはまだ実装していない
 $config_ext['png'] = 1;
 $config_ext['jpg'] = 1;
 $config_ext['jpeg'] = 1;
@@ -66,6 +67,11 @@ $config_log = false;
 // ロギング有効時のログ出力先。空文字列('')ならば標準出力へ。
 // **ファイルへの出力を放置するとログファイルが膨れ続けるので注意**
 $config_log_path = 'log_oosamuneiru.txt';
+
+// ファイルの昇順、逆順ソートが終わった後に以下の形式で呼び出される無名関数
+// $config_on_files_sorted = function($new_to_old_files) {}
+// default:false
+$config_on_files_sorted = false;
 
 if (file_exists('instance-config.php')) {
   require_once 'instance-config.php';
@@ -116,7 +122,9 @@ error_reporting($backuped_error_level);
 unset($backuped_error_level);
 
 
-
+/*
+ * グローバル変数
+ */
 $src_rootdir = (function(){
   $x = realpath('.') . '/' . IMG_DIR;
 
@@ -126,6 +134,26 @@ $src_rootdir = (function(){
   return $x;
 })();
 
+// PHP 8.1 以降で true
+$is_function_exists_imagecreatefromavif = function_exists('imagecreatefromavif');
+
+
+function might_log(...$args) {
+  global $config_log, $config_log_path;
+  if (! $config_log) {
+	return false;
+  };
+
+  $s = implode(' ', $args) . PHP_EOL;
+  if ($config_log_path === '') {
+	fwrite(STDERR, $s);
+  }
+  else {
+	file_put_contents($config_log_path, $s, FILE_APPEND);
+  };
+
+  return true;
+};
 
 function might_shrink_size($width_height) {
   // $width_height: 配列: [source width, source height]
@@ -160,7 +188,7 @@ class ThumbPath {
   public function is_icon() {
     return $this->type == ThumbPath::ICON;
   }
-  // $path は既に生成されたサムネイルを指している
+  // $path は既に生成されたサムネイルを指している。プリセットアイコンでもない。
   public function is_exist() {
     return $this->type == ThumbPath::EXIST;
   }
@@ -269,6 +297,87 @@ function prepare_thumb_path_by_src_pathcompo($src_rootdir, $src_subdir, $src_bas
 
   $thumb_path = $thumb_prefix . '.' . $THUMB_EXT;
   $src_path = join_pathcompo($src_rootdir, $src_subdir, $src_basename, $src_ext);
+
+  $thumb_obj = generate_thumb_with_gd($src_path, $thumb_prefix, $THUMB_EXT);
+  if ($thumb_obj->is_exist()) {
+	return $thumb_obj;
+  };
+  $thumb_obj = generate_thumb_with_ffmpeg($src_path, $thumb_prefix, $THUMB_EXT);
+  return $thumb_obj;
+};
+
+
+function generate_thumb_with_gd($src_path, $thumb_prefix, $thumb_ext_without_dot) {
+  global $config_log, $config_log_path, $is_function_exists_imagecreatefromavif;
+
+  $lower_src_path = strtolower($src_path);
+
+  $type = exif_imagetype($src_path);
+
+  if ($type === false) {
+	return ThumbPath::icon(THUMB_FALSE);
+
+	// 以下 ABC 順
+  } elseif ($is_function_exists_imagecreatefromavif
+			&& str_ends_with($lower_src_path, '.avif')) {
+	// PHP 8.3(2023-10)時点では exif_imagetype は avif に対応していない
+	// 拡張子だけで判断する
+	$image_obj = imagecreatefromavif($src_path);
+  } elseif ($type === IMAGETYPE_BMP) {
+	$image_obj = imagecreatefrombmp($src_path);
+  } elseif ($type === IMAGETYPE_GIF) {
+	$image_obj = imagecreatefromgif($src_path);
+  } elseif ($type === IMAGETYPE_JPEG) {
+	$image_obj = imagecreatefromjpeg($src_path);
+  } elseif ($type === IMAGETYPE_PNG) {
+	$image_obj = imagecreatefrompng($src_path);
+  } elseif ($type === IMAGETYPE_WEBP) {
+	$image_obj = imagecreatefromwebp($src_path);  // PHP 5.4.0
+  }
+  else {
+	return ThumbPath::icon(THUMB_FALSE);
+  };
+
+  if ($image_obj === false) {
+	// imagecreateを試みたのにも関わらず失敗した
+	might_log('PHP-GD could not interpret image file:', $src_path);
+	return ThumbPath::icon(THUMB_FALSE);
+  };
+
+  list($in_width, $in_height) = getimagesize($src_path);
+  list($out_width, $out_height) = might_shrink_size([$in_width, $in_height]);
+
+  $image_out_obj = imagecreatetruecolor($out_width, $out_height);
+  imagecopyresampled($image_out_obj, $image_obj,
+					 0, 0, 0, 0,
+					 $out_width, $out_height, $in_width, $in_height);
+
+  $thumb_path = $thumb_prefix . '.' . $thumb_ext_without_dot;
+
+  if ($thumb_ext_without_dot === 'jpg'
+	  || $thumb_ext_without_dot === 'jpeg') {
+
+	imagejpeg($image_out_obj, $thumb_path, THUMB_QUALITY);
+	return ThumbPath::exist($thumb_path);
+  }
+  elseif ($thumb_ext_without_dot === 'webp') {
+
+	imagewebp($image_out_obj, $thumb_path);
+	return ThumbPath::exist($thumb_path);
+  };
+  // このコードは PHP 8 以降が前提だから imagedestroy しない。
+
+  might_log('failed to output thumbnail file:', $thumb_path);
+
+  return ThumbPath::icon(THUMB_FALSE);
+};
+
+
+function generate_thumb_with_ffmpeg($src_path, $thumb_prefix, $thumb_ext_without_dot) {
+  global $config_ffmpeg_path, $config_log, $config_log_path;
+
+  $thumb_path = $thumb_prefix . '.' . $thumb_ext_without_dot;
+
   $ifile = escapeshellarg($src_path);
   $ofile = escapeshellarg($thumb_path);
 
@@ -291,14 +400,8 @@ function prepare_thumb_path_by_src_pathcompo($src_rootdir, $src_subdir, $src_bas
   exec($cmd, $ffmpeg_stdout, $ffmpeg_retcode);
 
   if ($config_log) {
-    $txt = implode(PHP_EOL, $ffmpeg_stdout) . PHP_EOL
-         . 'return code: ' . $ffmpeg_retcode . PHP_EOL;
-    if ($config_log_path === '') {
-      print($txt);
-    }
-    else {
-      file_put_contents($config_log_path, $txt, FILE_APPEND);
-    };
+	might_log(implode(PHP_EOL, $ffmpeg_stdout) . PHP_EOL
+			  . 'return code: ' . $ffmpeg_retcode . PHP_EOL);
   };
 
   if (! file_exists($thumb_path)) {
@@ -458,7 +561,7 @@ function prepare_files() {
 
     $files[] = array(
       'name_with_ext' => $info->getBasename(),
-      'thumbpath' => $thumb->path,
+      'rel_thumbpath' => $thumb->path,
       'rel_srcpath' => $rel_srcpath
     );
   };
@@ -487,9 +590,9 @@ function build_dispmsg(&$files, &$file_index, $files_length, $page_local_index) 
   ++$file_index;
 
   $attr_width_height = '';
-  if (IMG_INWH && file_exists($val['thumbpath'])) {
+  if (IMG_INWH && file_exists($val['rel_thumbpath'])) {
     // tesheke: サムネへの縮小とこの部分で計算が二重になってしまっている
-    $size = getimagesize($val['thumbpath']);
+    $size = getimagesize($val['rel_thumbpath']);
 
     // 画像表示縮小
     list($out_w, $out_h) = might_shrink_size($size);
@@ -497,7 +600,7 @@ function build_dispmsg(&$files, &$file_index, $files_length, $page_local_index) 
   };
 
   $imglink = str_replace('%2F','/',rawurlencode($val['rel_srcpath']));
-  $thumblink = str_replace('%2F', '/', rawurlencode($val['thumbpath']));
+  $thumblink = str_replace('%2F', '/', rawurlencode($val['rel_thumbpath']));
 
   $attr_target = '';
   if (TARGET_FRAME !== '') {
@@ -525,7 +628,7 @@ function build_dispmsg(&$files, &$file_index, $files_length, $page_local_index) 
 
 /* 表示処理部分 */
 function updatesam(){
-  global $src_rootdir, $ignore_file;
+  global $src_rootdir, $ignore_file, $config_on_files_sorted;
 
   $files = prepare_files();
 
@@ -535,6 +638,11 @@ function updatesam(){
 
   $filesA = array_reverse($files); // 逆順
   $filesB = &$files; // 正順
+
+  if ($config_on_files_sorted) {
+	$config_on_files_sorted($filesA);
+  };
+
   // ページ作成.初期値設定
   $files_length = count($files);
   $pages_length = ceil($files_length / PAGE_DEF);
