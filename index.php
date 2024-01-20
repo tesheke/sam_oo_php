@@ -34,6 +34,9 @@ $config_ext['mpg'] = 2;
 $config_ext['avi'] = 2;
 $config_ext['ts'] = 2;
 $config_ext['m2ts'] = 2;
+$config_ext['webm'] = 2;
+$config_ext['mov'] = 2;
+$config_ext['mkv'] = 2;
 
 $config_ext['wav'] = 'icon_mov.png';
 $config_ext['mp3'] = 'icon_mov.png';
@@ -134,9 +137,28 @@ $src_rootdir = (function(){
   return $x;
 })();
 
+
 // PHP 8.1 以降で true
 $is_function_exists_imagecreatefromavif = function_exists('imagecreatefromavif');
 
+// 時間計測用の入れもの
+$performance = array();
+$performance['listfile'] = 0;  # ファイルをリストするのにかかった時間
+$performance['thumb'] = 0;     # サムネイルチェック・サムネイル生成にかかった時間
+$performance['sort'] = 0;      # ファイルのソートにかかった時間
+$performance['page'] = 0;      # ページ生成にかかった時間
+
+function format_performance($performance) {
+  $s = sprintf("処理(ファイル列挙[%01.2f], サムネ確認・生成[%01.2f], ファイルソート[%01.2f], HTML生成[%01.2f])"
+			   , $performance['listfile']
+			   , $performance['thumb']
+			   , $performance['sort']
+			   , $performance['page']);
+  might_log($s);
+  return '<div align=right>'
+	. htmlentities($s)
+	. '</div>';
+};
 
 function might_log(...$args) {
   global $config_log, $config_log_path;
@@ -154,6 +176,13 @@ function might_log(...$args) {
 
   return true;
 };
+
+
+function is_video_ext($ext) {
+  global $config_ext;
+  return 2 === $config_ext[strtolower($ext)];
+};
+
 
 function might_shrink_size($width_height) {
   // $width_height: 配列: [source width, source height]
@@ -483,6 +512,10 @@ function head(&$dat,$page){
 a {
   word-break: break-all;
 }
+.video {
+  border: 1px solid gray;
+  border-radius: 10px;
+}
 </style>
 </head>
 <body bgcolor="#FFFFEE">
@@ -514,7 +547,7 @@ a {
  * 各アイコンとの関連付けも行う。
  */
 function prepare_files() {
-  global $src_rootdir, $config_ext, $ignore_file;
+  global $src_rootdir, $config_ext, $ignore_file, $performance;
 
   $iterator = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator(
@@ -526,6 +559,7 @@ function prepare_files() {
   $iterator->setMaxDepth(DIR_DEPTH);
   $key1 = array();
   $files = array();
+  $performance['thumb'] = 0;
 
   foreach ($iterator as $info) {
     if (preg_match($ignore_file, $info->getFilename())) {
@@ -540,8 +574,13 @@ function prepare_files() {
     $tmpart = $info->getBasename($tmpext);
     $tmsubdir = $iterator->getSubPath();
 
+	$time_thumb_start = microtime(true);
+
     $thumb = prepare_thumb_path_by_src_pathcompo(
       IMG_DIR, $tmsubdir, $tmpart, $tmpext);
+
+	$performance['thumb'] += microtime(true) - $time_thumb_start;
+
     $rel_srcpath = join_pathcompo(
       IMG_DIR, $tmsubdir, $tmpart, $tmpext);
 
@@ -562,7 +601,8 @@ function prepare_files() {
     $files[] = array(
       'name_with_ext' => $info->getBasename(),
       'rel_thumbpath' => $thumb->path,
-      'rel_srcpath' => $rel_srcpath
+      'rel_srcpath' => $rel_srcpath,
+	  'is_video' => is_video_ext($info->getExtension())
     );
   };
 
@@ -609,12 +649,16 @@ function build_dispmsg(&$files, &$file_index, $files_length, $page_local_index) 
 
   $dispmsg = '';
   // 画像テーブル
-  $dispmsg .= '    <td align=center><a href="' . $imglink . '"'
+  $is_video = $val['is_video'];
+  $dispmsg .= '    <td align=center '
+		   .           ($is_video ? 'class="video"' : '')
+		   . '><a href="' . $imglink . '"'
            .  ' ' . $attr_target . '>' . PHP_EOL
            .  '    <img src="' . $thumblink . '" '
            .  $attr_width_height
            .  ' border="0"><br>'
-           .  $val['name_with_ext'] . "</a></td>" . PHP_EOL;
+		   .  ($is_video ? htmlentities('[動画]') : '')
+           .  htmlentities($val['name_with_ext']) . "</a></td>" . PHP_EOL;
 
   if ( (($page_local_index % PAGE_COLS) == 0)
        && (($page_local_index % PAGE_DEF) != 0)
@@ -628,13 +672,17 @@ function build_dispmsg(&$files, &$file_index, $files_length, $page_local_index) 
 
 /* 表示処理部分 */
 function updatesam(){
-  global $src_rootdir, $ignore_file, $config_on_files_sorted;
+  global $src_rootdir, $ignore_file, $config_on_files_sorted, $performance;
 
+  $time_prepare = microtime(true);
   $files = prepare_files();
+  $performance['listfile'] = microtime(true) - $time_prepare - $performance['thumb'];
 
   if (0 == count($files)) {
     error('ERROR!!<br>NO IMAGE DATA!');
   };
+
+  $time_sort_start = microtime(true);
 
   $filesA = array_reverse($files); // 逆順
   $filesB = &$files; // 正順
@@ -643,11 +691,16 @@ function updatesam(){
 	$config_on_files_sorted($filesA);
   };
 
+  $performance['sort'] = microtime(true) - $time_sort_start;
+
+  $time_page_start = microtime(true);
+
   // ページ作成.初期値設定
   $files_length = count($files);
   $pages_length = ceil($files_length / PAGE_DEF);
   // ページ分の繰り返し
   for ($page = 0; $page < $pages_length; ++$page) {
+	$page_is_loop_last = $page == ($pages_length - 1);
     $datA = '';
     $datB = '';
     $pagesA = '';
@@ -739,9 +792,16 @@ function updatesam(){
     // 表示方法
     $datA .= $tmpA;
     $datB .= $tmpB;
-    // フッタHTML
-    foot($datA);
-    foot($datB);
+	// 統計締め
+	$stats = '';
+	if ($page_is_loop_last) {
+	  $performance['page'] = microtime(true) - $time_page_start;
+	  $stats = format_performance($performance);
+	  echo $stats;
+	};
+	// フッタHTML
+    foot($datA, $stats);
+    foot($datB, $stats);
     // 記事部分作成
     if ($page == 0) {
       $logfilename = HTML_ENTRANCE_O;
@@ -773,11 +833,12 @@ function updatesam(){
 
 
 /* フッタ */
-function foot(&$dat){
+function foot(&$dat, $stats=''){
   $dat .= '
 </div>
 <div class="autopagerize_insert_before"></div>
 </center>
+' . $stats . '
 <div align=right><a href="http://php.s3.to" target="_top">レッツPHP!</a> + <a href="http://siokara.que.jp/" target="_top">siokara</a></div>
 </body></html>';
 }
