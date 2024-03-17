@@ -115,7 +115,13 @@ define('TITLE_R', '新しい順');  // 逆順表示
 define('DIR_DEPTH', -1);    // 探索するディレクトリの深さを制限する  する:0以上 しない:-1
 define('SORT_BY_DATE', 1);  // 更新日順にする  する:1 しない:0
 
-define('FORCE_P_VER_THUMB', false); // true/false index.php の旧バージョンのサムネシステムを使う
+// true/false。falseで旧サムネシステムが生成したサムネパスを確認しない。
+// falseでパフォーマンスが改善する。手動で消さない限り旧サムネは残る。
+// この設定はFORCE_P_VER_THUMBよりも優先。
+define('ENABLE_P_VER_THUMB', true);
+// true/false index.php の旧バージョンのサムネシステムを使う。 DISABLE_P_VER_THUMB の設定が優先される。
+define('FORCE_P_VER_THUMB', false);
+
 
 /******************
  * 設定値ここまで *
@@ -145,15 +151,41 @@ $is_function_exists_imagecreatefromavif = function_exists('imagecreatefromavif')
 $performance = array();
 $performance['listfile'] = 0;  # ファイルをリストするのにかかった時間
 $performance['thumb'] = 0;     # サムネイルチェック・サムネイル生成にかかった時間
+$performance['thumb_p_time'] = 0;    # 旧仕様サムネチェックにかかった時間
+$performance['thumb_p_count'] = 0;   # 通過回数
+$performance['thumb_tcheck_time'] = 0;   # 現在仕様サムネチェック
+$performance['thumb_tcheck_count'] = 0;  # 通過回数
+$performance['thumb_gd_time'] = 0;  # GD
+$performance['thumb_gd_count'] = 0; # GD
+$performance['thumb_ffmpeg_time'] = 0;  # ffmpeg
+$performance['thumb_ffmpeg_count'] = 0; # ffmpeg
+
 $performance['sort'] = 0;      # ファイルのソートにかかった時間
 $performance['page'] = 0;      # ページ生成にかかった時間
 
 function format_performance($performance) {
-  $s = sprintf("処理(ファイル列挙[%01.2f], サムネ確認・生成[%01.2f], ファイルソート[%01.2f], HTML生成[%01.2f])"
-               , $performance['listfile']
-               , $performance['thumb']
-               , $performance['sort']
-               , $performance['page']);
+  $z = 1000;
+  $s = sprintf("処理(ファイル列挙[%01.2f]", $performance['listfile']*$z);
+  $s = $s.sprintf(", サムネ確認・生成[%01.2f]", $performance['thumb']*$z);
+  $s = $s.sprintf(", 旧仕様サムネ確認[%01.2f/%d回]",
+                  $performance['thumb_p_time']*$z,
+                  $performance['thumb_p_count']);
+
+  $s = $s.sprintf(", 現仕様サムネ確認[%01.2f/%d回]",
+                  $performance['thumb_tcheck_time']*$z,
+                  $performance['thumb_tcheck_count']);
+
+  $s = $s.sprintf(", GD生成[%01.2f/%d回]",
+                  $performance['thumb_gd_time']*$z,
+                  $performance['thumb_gd_count']);
+
+  $s = $s.sprintf(", FFMPEG生成[%01.2f/%d回]",
+                  $performance['thumb_ffmpeg_time']*$z,
+                  $performance['thumb_ffmpeg_count']);
+
+  $s = $s.sprintf(", ファイルソート[%01.2f]", $performance['sort']*$z);
+  $s = $s.sprintf(", HTML生成[%01.2f])", $performance['page']*$z);
+
   might_log($s);
   return '<div align=right>'
     . htmlentities($s)
@@ -289,55 +321,98 @@ function array_ref($a, $key, $defval=null) {
 function prepare_thumb_path_by_src_pathcompo($src_rootdir, $src_subdir, $src_basename, $src_ext) {
 
   global $config_ext, $config_ffmpeg_path, $config_log, $config_log_path
-    , $THUMB_EXT, $THUMB_SEARCH_EXT;
+    , $THUMB_EXT, $THUMB_SEARCH_EXT, $performance;
 
-  $icon_path = array_ref($config_ext, strtolower(substr($src_ext, 1)));
-  if (gettype($icon_path) === 'string') {
-    return ThumbPath::icon($icon_path);
+  if (ENABLE_P_VER_THUMB) {
+    try {
+      $timer_start = microtime(true);
+
+      $icon_path = array_ref($config_ext, strtolower(substr($src_ext, 1)));
+      if (gettype($icon_path) === 'string') {
+        return ThumbPath::icon($icon_path);
+      };
+
+      $thumbo = prepare_pver_thumb($src_rootdir, $src_subdir, $src_basename, $src_ext);
+
+      if ($thumbo !== false && $thumbo->is_exist()) {
+        return $thumbo;
+      };
+
+      if (FORCE_P_VER_THUMB) {
+        return ThumbPath::icon(THUMB_FALSE);
+      };
+      unset($thumbo);
+
+    } finally {
+      $performance['thumb_p_time'] += microtime(true) - $timer_start;
+      ++$performance['thumb_p_count'];
+    };
   };
 
-  $thumbo = prepare_pver_thumb($src_rootdir, $src_subdir, $src_basename, $src_ext);
-
-  if ($thumbo !== false && $thumbo->is_exist()) {
-    return $thumbo;
-  };
-
-  if (FORCE_P_VER_THUMB) {
-    return ThumbPath::icon(THUMB_FALSE);
-  };
-  unset($thumbo);
+  $timer_start = microtime(true);
 
   /*
    * 以降は T-Ver(新バージョン)サムネイル命名規則。
    */
-  $thumb_prefix = '';
-  if ($src_subdir !== '') {
-    $thumb_prefix = slash_to_2f($src_subdir . '/');
-  };
-  $thumb_prefix = THUMB_DIR . 't1_' . $thumb_prefix . $src_basename . $src_ext;
-
-  foreach ($THUMB_SEARCH_EXT as $x) {
-    // $x に来るのは 'webp' や 'jpg'
-    $pa = $thumb_prefix . '.' . $x;
-    if (file_exists($pa)) {
-      return ThumbPath::exist($pa);
+  try {
+    $thumb_prefix = '';
+    if ($src_subdir !== '') {
+      $thumb_prefix = slash_to_2f($src_subdir . '/');
     };
+    $thumb_prefix = THUMB_DIR . 't1_' . $thumb_prefix . $src_basename . $src_ext;
+
+    foreach ($THUMB_SEARCH_EXT as $x) {
+      // $x に来るのは 'webp' や 'jpg'
+      $pa = $thumb_prefix . '.' . $x;
+      if (file_exists($pa)) {
+        $performance['thumb_tcheck_time'] += microtime(true) - $timer_start;
+        return ThumbPath::exist($pa);
+      };
+    };
+  } finally {
+    ++$performance['thumb_tcheck_count'];
+    $performance['thumb_tcheck_time'] += microtime(true) - $timer_start;
   };
+
+  $timer_start = microtime(true);
+  ++$performance['thumb_gd_count'];
 
   $thumb_path = $thumb_prefix . '.' . $THUMB_EXT;
   $src_path = join_pathcompo($src_rootdir, $src_subdir, $src_basename, $src_ext);
 
-  $thumb_obj = generate_thumb_with_gd($src_path, $thumb_prefix, $THUMB_EXT);
+  $thumb_obj = generate_thumb_with_gd($src_path, $src_ext, $thumb_prefix, $THUMB_EXT);
+
+  $performance['thumb_gd_time'] += microtime(true) - $timer_start;
+
   if ($thumb_obj->is_exist()) {
     return $thumb_obj;
   };
-  $thumb_obj = generate_thumb_with_ffmpeg($src_path, $thumb_prefix, $THUMB_EXT);
+
+  $timer_start = microtime(true);
+  ++$performance['thumb_ffmpeg_count'];
+
+  $thumb_obj = generate_thumb_with_ffmpeg($src_path, $src_ext, $thumb_prefix, $THUMB_EXT);
+
+  $performance['thumb_ffmpeg_time'] += microtime(true) - $timer_start;
   return $thumb_obj;
 };
 
 
-function generate_thumb_with_gd($src_path, $thumb_prefix, $thumb_ext_without_dot) {
-  global $config_log, $config_log_path, $is_function_exists_imagecreatefromavif;
+function generate_thumb_with_gd($src_path, $src_ext_with_dot,
+                                $thumb_prefix, $thumb_ext_without_dot) {
+  global $config_log, $config_log_path, $is_function_exists_imagecreatefromavif, $config_ext;
+
+  $src_ext_without_dot = substr($src_ext_with_dot, 1);
+
+  // 負荷軽減のための条件分岐。
+  // 画像でも動画でもないならGD試行しない。
+  if (1 == $config_ext[$src_ext_without_dot]) {
+    // do nothing
+  } else if (2 == $config_ext[$src_ext_without_dot]) {
+    // do nothing
+  } else {
+    return ThumbPath::icon(THUMB_FALSE);
+  };
 
   $lower_src_path = strtolower($src_path);
 
@@ -402,8 +477,21 @@ function generate_thumb_with_gd($src_path, $thumb_prefix, $thumb_ext_without_dot
 };
 
 
-function generate_thumb_with_ffmpeg($src_path, $thumb_prefix, $thumb_ext_without_dot) {
-  global $config_ffmpeg_path, $config_log, $config_log_path;
+function generate_thumb_with_ffmpeg($src_path, $src_ext_with_dot,
+                                    $thumb_prefix, $thumb_ext_without_dot) {
+  global $config_ffmpeg_path, $config_log, $config_log_path, $config_ext;
+
+  $src_ext_without_dot = substr($src_ext_with_dot, 1);
+
+  // 負荷軽減のための条件分岐。
+  // 画像でも動画でもないならffmpeg試行しない。
+  if (1 == $config_ext[$src_ext_without_dot]) {
+    // do nothing
+  } else if (2 == $config_ext[$src_ext_without_dot]) {
+    // do nothing
+  } else {
+    return ThumbPath::icon(THUMB_FALSE);
+  };
 
   $thumb_path = $thumb_prefix . '.' . $thumb_ext_without_dot;
 
@@ -797,7 +885,7 @@ function updatesam(){
     if ($page_is_loop_last) {
       $performance['page'] = microtime(true) - $time_page_start;
       $stats = format_performance($performance);
-      echo $stats;
+      // echo $stats;
     };
     // フッタHTML
     foot($datA, $stats);
@@ -907,25 +995,6 @@ function generate_pver_thumb($src_path, $thumb_path) {
   imagedestroy($im_out);
   return true;
 };
-
-
-/* P-Ver命名規則のサムネイルを作成 */
-// function thumb($src_rootdir, $src_subdir, $src_basename, $src_ext) {
-//
-//   $thumb_path_obj = prepare_thumb_path_by_src_pathcompo(
-//     $src_rootdir, $src_subdir, $src_basename, $src_ext);
-//
-//   if (! $thumb_path_obj->is_need_generate()) {
-//     return;
-//   };
-//
-//   $thumb_path = $thumb_path_obj->path;
-//   unset($thumb_path_obj);
-//
-//   $src = join_pathcompo(
-//     $src_rootdir, $src_subdir, $src_basename, $src_ext);
-//
-// }
 
 
 /* 初期設定 */
