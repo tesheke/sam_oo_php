@@ -60,7 +60,11 @@ $THUMB_EXT = 'jpg';  // 生成するサムネイルの画像形式拡張子
 $THUMB_SEARCH_EXT = ['webp', 'jpg'];  // サムネイル検索する拡張子
 
 // 無視するファイル名
-$ignore_file = '/^(THM_|LOG_|img_|tm_).+\.(png|jpe?g|gif)$|_thumb\.(png|jpe?g|gif)$/i';
+$ignore_file = [
+  '/^(THM_|LOG_|img_|tm_).+\.(?i:png|jpe?g|gif)$/',
+  '/_thumb\.(png|jpe?g|gif)$/i',
+  '/-[0-9]+x[0-9]+.[^.]*$/',
+];
 
 // サムネイル生成に使う ffmpeg パス
 // この値はエスケープやクオーションされずに使われます
@@ -628,6 +632,21 @@ a {
 
 }
 
+function is_ignore_file($filename) {
+  global $ignore_file;
+  if (gettype($ignore_file) == 'string') {
+	if (preg_match($ignore_file, $filename)) {
+	  return true;
+	};
+	return false;
+  };
+  foreach ($ignore_file as $reg) {
+	if (preg_match($reg, $filename)) {
+	  return true;
+	};
+  };
+  return false;
+}
 
 /*
  * ファイル一覧を作る。
@@ -650,9 +669,9 @@ function prepare_files() {
   $performance['thumb'] = 0;
 
   foreach ($iterator as $info) {
-    if (preg_match($ignore_file, $info->getFilename())) {
-      continue;
-    };
+	if (is_ignore_file($info->getFilename())) {
+	  continue;
+	};
     if (! array_key_exists(strtolower($info->getExtension()), $config_ext)) {
       continue;
     };
@@ -675,7 +694,12 @@ function prepare_files() {
     // リスト生成
     if (SORT_BY_DATE) {
       // http://www.php.net/manual/ja/class.splfileinfo.php
-      $key1[] = $info->getMTime();
+	  try {
+		$key1[] = $info->getMTime();
+	  } catch (RuntimeException) {
+		// リンク切れシンボリックリンクなど
+		$key1[] = 0;
+	  };
     } else {
       $key1[] = $info->getFilename();
     };
